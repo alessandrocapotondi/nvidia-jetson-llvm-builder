@@ -1,0 +1,24 @@
+--- /root/hpclab-llvm-builder/llvm/llvm-10.0.0/projects/openmp/libomptarget/plugins/cuda/CMakeLists.txt	2020-04-14 15:26:54.454423234 +0200
++++ /scratch/pkgs/llvm-old/llvm-src/projects/openmp/libomptarget/plugins/cuda/CMakeLists.txt	2020-04-14 15:28:17.648234925 +0200
+@@ -9,8 +9,8 @@
+ # Build a plugin for a CUDA machine if available.
+ #
+ ##===----------------------------------------------------------------------===##
+-if (NOT(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(ppc64le)$" AND CMAKE_SYSTEM_NAME MATCHES "Linux"))
+-  libomptarget_say("Not building CUDA offloading plugin: only support CUDA in Linux x86_64 or ppc64le hosts.")
++if (NOT(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(ppc64le)|(aarch64)$" AND CMAKE_SYSTEM_NAME MATCHES "Linux"))
++	libomptarget_say("Not building CUDA offloading plugin: only support CUDA in Linux x86_64, ppc64le and AArch64hosts.")
+   return()
+ elseif (NOT LIBOMPTARGET_DEP_LIBELF_FOUND)
+   libomptarget_say("Not building CUDA offloading plugin: libelf dependency not found.")
+@@ -28,6 +28,10 @@
+ # Define the suffix for the runtime messaging dumps.
+ add_definitions(-DTARGET_NAME=CUDA)
+ 
++if(LIBOMPTARGET_CMAKE_BUILD_TYPE MATCHES debug)
++    add_definitions(-DCUDA_ERROR_REPORT)
++endif()
++
+ include_directories(${LIBOMPTARGET_DEP_CUDA_INCLUDE_DIRS})
+ include_directories(${LIBOMPTARGET_DEP_LIBELF_INCLUDE_DIRS})
+ 
