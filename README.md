@@ -2,6 +2,8 @@
 
 Builder script for Clang/LLVM10 compiler for Nvidia Jetson Nano (could be extended to other Jetson boards) with OpenMP 4.5 offloading support. The script is created to be executed directly in the Nvidia Jetson Nano. Larger SWAP memory is recommended (see below).
 
+> Nvidia Jetson Nano has 4 GB of DDR4 memory, plus, by default, it has 2GB of SWAP. Memory usage during the build of Clang/LLVM may be larger, thus is recommended to increase the SWAP partition to 8-16GB. You can do it following this tutorial: https://www.jetsonhacks.com/2019/11/28/jetson-nano-even-more-swap/
+
 ## Current Target
 * Clang/LLVM v10.0.0
 * Supported Compute Capabilities: `53,62,72`
@@ -30,4 +32,3 @@ export C_INCLUDE_PATH=$LLVM_PATH/include:$C_INCLUDE_PATH
 export CPLUS_INCLUDE_PATH=$LLVM_PATH/include:CPLUS_INCLUDE_PATH
 ```
 
-> Nvidia Jetson Nano has 4 GB of DDR4 memory, plus, by default, it has 2GB of SWAP. Memory usage during the build of Clang/LLVM may be larger, thus is recommended to increase the SWAP partition to 8-16GB. You can do it following this tutorial: https://www.jetsonhacks.com/2019/11/28/jetson-nano-even-more-swap/
