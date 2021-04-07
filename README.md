@@ -32,3 +32,5 @@ export C_INCLUDE_PATH=$LLVM_PATH/include:$C_INCLUDE_PATH
 export CPLUS_INCLUDE_PATH=$LLVM_PATH/include:CPLUS_INCLUDE_PATH
 ```
 
+# References
+* https://hpc-wiki.info/hpc/Building_LLVM/Clang_with_OpenMP_Offloading_to_NVIDIA_GPUs
