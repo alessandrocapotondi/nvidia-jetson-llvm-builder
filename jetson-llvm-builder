@@ -28,8 +28,11 @@
 #LLVM Version
 LLVM_VER=10.0.0
 
-# Jetson Nano
-ARCH_BIN=5.3
+# Jetson TX1,Nano   CP 5.3
+# Jetson TX2        CP 6.2
+# Jetson AGX Xavier CP 7.2
+NVIDIA_ARCH_DEFAULT=53
+NVIDIA_ARCH_LIST=53,62,72
 LLVM_PATH=/usr/local
 
 # Source code directory
@@ -39,13 +42,12 @@ WHEREAMI=$PWD
 # This will default to the number of CPU cores (on the Nano, that's 4)
 # If you are using a SD card, you may want to change this
 # to 1. Also, you may want to increase the size of your swap file
-NUM_JOBS=4
+NUM_JOBS=16
 
 function usage() {
   echo "usage: $0 [[-s sourcedir ] | [-h]]"
   echo "-s | --sourcedir   Directory in which to place the Clang/LLVM sources (default $LLVM_SRC)"
   echo "-i | --installdir  Directory in which to install Clang/LLVM libraries (default $LLVM_PATH)"
-  echo "--no_package       Do not package Clang/LLVM as .deb file (default is true)"
   echo "-h | --help  This message"
 }
 
@@ -59,9 +61,6 @@ while [ "$1" != "" ]; do
   -i | --installdir)
     shift
     LLVM_PATH=$1
-    ;;
-  --no_package)
-    PACKAGE_LLVM=""
     ;;
   -h | --help)
     usage
@@ -82,21 +81,18 @@ echo "Build configuration: "
 echo " NVIDIA Jetson Nano"
 echo " Clang/LLVM binaries will be installed in: $CMAKE_INSTALL_PREFIX"
 echo " Clang/LLVM Source will be installed in: $LLVM_SRC"
-if [ "$PACKAGE_LLVM" = "" ]; then
-  echo " NOT Packaging Clang/LLVM"
-else
-  echo " Packaging Clang/LLVM"
-fi
 
 # Repository setup
-apt-add-repository universe
 apt-get update
 
 # Download dependencies for the desired configuration
 cd $WHEREAMI
 apt-get install -y \
+  build-essential \
+  cmake-curses-gui \
   apt-utils \
   git \
+  ninja-build \
   libffi-dev \
   libelf-dev \
   cmake \
@@ -110,34 +106,26 @@ if [ -d "$LLVM_SRC/llvm-$LLVM_VER" ]; then
   echo "Found sources at $LLVM_SRC/llvm-$LLVM_VER: skipping download..."
 else
   cd $LLVM_SRC
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/llvm-$LLVM_VER.src.tar.xz
-  tar -xf llvm-$LLVM_VER.src.tar.xz
-  mv llvm-$LLVM_VER.src llvm-$LLVM_VER
-  rm -rf llvm-$LLVM_VER.src.tar.xz
-
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/clang-$LLVM_VER.src.tar.xz
-  tar -xf clang-$LLVM_VER.src.tar.xz
-  mv clang-$LLVM_VER.src llvm-$LLVM_VER/tools/clang
-  rm -rf clang-$LLVM_VER.src.tar.xz
-
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/openmp-$LLVM_VER.src.tar.xz
-  tar -xf openmp-$LLVM_VER.src.tar.xz
-  mv openmp-$LLVM_VER.src llvm-$LLVM_VER/projects/openmp
-  rm -rf openmp-$LLVM_VER.src.tar.xz
+  echo "Downloading sources at $LLVM_SRC/llvm-$LLVM_VER..."
+  wget -q https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-$LLVM_VER.tar.gz
+  tar -xf llvmorg-$LLVM_VER.tar.gz
+  mv llvm-project-llvmorg-$LLVM_VER llvm-$LLVM_VER
+  rm -rf llvmorg-$LLVM_VER.tar.gz
 
   # We will be supporting CUDA Offloading on AARCH64, we need a little magic to help
   # https://reviews.llvm.org/D76469#change-bNa3STPpyw0M
-  cd $LLVM_SRC
-  patch -N llvm-$LLVM_VER/projects/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
+  patch -N llvm-$LLVM_VER/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
 fi
 
 cd $LLVM_SRC
-mkdir -p build-$LLVM_VER
-cd build-$LLVM_VER
+mkdir -p build-stage1-$LLVM_VER
+cd build-stage1-$LLVM_VER
 
-echo $PWD
-time cmake -G "Unix Makefiles" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+echo "[$PWD] Build Clang/LLVM Stage1..."
+time cmake -G Ninja \
+  -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
+  -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
   -D CMAKE_BUILD_TYPE=RELEASE \
   -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
   -D LLVM_ENABLE_ASSERTIONS=ON \
@@ -145,9 +133,9 @@ time cmake -G "Unix Makefiles" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_ENABLE_RTTI=ON \
   -D LLVM_ENABLE_WERROR=OFF \
   -D BUILD_SHARED_LIBS=OFF \
-  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_53 \
-  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=53,62,72 \
-  $LLVM_SRC/llvm-$LLVM_VER
+  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
+  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \
+  $LLVM_SRC/llvm-$LLVM_VER/llvm
 
 if [ $? -eq 0 ]; then
   echo "CMake configuration make successful"
@@ -158,7 +146,7 @@ else
   exit 1
 fi
 
-time make -j$NUM_JOBS
+time ninja -j$NUM_JOBS
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM make successful"
 else
@@ -167,7 +155,7 @@ else
   echo "Make did not build " >&2
   echo "Retrying ... "
   # Single thread this time
-  time make
+  time ninja
   if [ $? -eq 0 ]; then
     echo "Clang/LLVM make successful"
   else
@@ -179,7 +167,7 @@ else
 fi
 
 echo "Installing ... "
-make install
+time ninja  install
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
 else
@@ -189,11 +177,14 @@ fi
 
 # Bootstrap LLVM/Clang
 cd $LLVM_SRC
+mkdir -p build-stage2-$LLVM_VER
+cd build-stage2-$LLVM_VER
 
-cd build-$LLVM_VER
-echo $PWD
-time cmake -G "Unix Makefiles" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+echo "[$PWD] System Bootstrap - Clang/LLVM Stage2..."
+time cmake -G Ninja \
+  -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
+  -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
   -D CMAKE_BUILD_TYPE=RELEASE \
   -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
   -D LLVM_ENABLE_ASSERTIONS=ON \
@@ -201,11 +192,11 @@ time cmake -G "Unix Makefiles" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_ENABLE_RTTI=ON \
   -D LLVM_ENABLE_WERROR=OFF \
   -D BUILD_SHARED_LIBS=OFF \
-  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_53 \
-  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=53,62,72 \
+  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
+  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \  
   -D CMAKE_C_COMPILER=${LLVM_PATH}/bin/clang \
   -D CMAKE_CXX_COMPILER=${LLVM_PATH}/bin/clang++ \
-  $LLVM_SRC/llvm-$LLVM_VER
+  $LLVM_SRC/llvm-$LLVM_VER/llvm
 
 if [ $? -eq 0 ]; then
   echo "CMake configuration make successful"
@@ -216,7 +207,7 @@ else
   exit 1
 fi
 
-time make -j$NUM_JOBS
+time ninja -j$NUM_JOBS
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM make successful"
 else
@@ -225,7 +216,7 @@ else
   echo "Make did not build " >&2
   echo "Retrying ... "
   # Single thread this time
-  time make
+  time ninja
   if [ $? -eq 0 ]; then
     echo "Clang/LLVM make successful"
   else
@@ -237,7 +228,7 @@ else
 fi
 
 echo "Installing ... "
-time make install
+time ninja install -j$NUM_JOBS
 time ldconfig
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
@@ -245,3 +236,5 @@ else
   echo "There was an issue with the final installation"
   exit 1
 fi
+
+#Happy offloading!!
