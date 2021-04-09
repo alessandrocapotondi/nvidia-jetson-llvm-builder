@@ -1,6 +1,12 @@
 # Nvidia Jetson Nano LLVM Builder
 
-Builder script for Clang/LLVM10 compiler for Nvidia Jetson Nano (could be extended to other Jetson boards) with OpenMP 4.5 offloading support. The script is created to be executed directly in the Nvidia Jetson Nano. Larger SWAP memory is recommended (see below).
+Builder script for Clang/LLVM10 compiler for Nvidia Jetson Nano (could be extended to other Jetson boards) with OpenMP 4.5 offloading support. The script is created to be executed directly in the Nvidia Jetson Nano. Larger SWAP memory is required or I recommend you to build the compiler using an AArch64 emulator (see below).
+
+> **(RECOMENDED)** Build inside an AArch64 Docker container to emulate the Jetson systems: https://www.stereolabs.com/docs/docker/building-arm-container-on-x86/
+> ```
+> sudo apt-get install qemu binfmt-support qemu-user-static
+> docker run --name jetson --privileged --rm -it nvcr.io/nvidia/l4t-base:r32.2.1
+> ```
 
 > Nvidia Jetson Nano has 4 GB of DDR4 memory, plus, by default, it has 2GB of SWAP. Memory usage during the build of Clang/LLVM may be larger, thus is recommended to increase the SWAP partition to 8-16GB. You can do it following this tutorial: https://www.jetsonhacks.com/2019/11/28/jetson-nano-even-more-swap/
 
