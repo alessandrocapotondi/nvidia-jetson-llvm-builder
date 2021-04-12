@@ -42,10 +42,11 @@ WHEREAMI=$PWD
 # This will default to the number of CPU cores (on the Nano, that's 4)
 # If you are using a SD card, you may want to change this
 # to 1. Also, you may want to increase the size of your swap file
-NUM_JOBS=16
+NUM_JOBS=8
 
 function usage() {
-  echo "usage: $0 [[-s sourcedir ] | [-h]]"
+  echo "usage: $0 [-s sourcedir | -i installdir | -j number of threads | -h ]"
+  echo "-j | --jobs        Number of threads used for building the compiler"
   echo "-s | --sourcedir   Directory in which to place the Clang/LLVM sources (default $LLVM_SRC)"
   echo "-i | --installdir  Directory in which to install Clang/LLVM libraries (default $LLVM_PATH)"
   echo "-h | --help  This message"
@@ -61,6 +62,10 @@ while [ "$1" != "" ]; do
   -i | --installdir)
     shift
     LLVM_PATH=$1
+    ;;
+  -j | --jobs)
+    shift
+    NUM_JOBS=$1
     ;;
   -h | --help)
     usage
@@ -92,7 +97,6 @@ apt-get install -y \
   cmake-curses-gui \
   apt-utils \
   git \
-  ninja-build \
   libffi-dev \
   libelf-dev \
   cmake \
@@ -122,7 +126,7 @@ mkdir -p build-stage1-$LLVM_VER
 cd build-stage1-$LLVM_VER
 
 echo "[$PWD] Build Clang/LLVM Stage1..."
-time cmake -G Ninja \
+time cmake -G "Unix Makefiles" \
   -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
   -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
@@ -146,7 +150,7 @@ else
   exit 1
 fi
 
-time ninja -j$NUM_JOBS
+time make -j$NUM_JOBS
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM make successful"
 else
@@ -155,7 +159,7 @@ else
   echo "Make did not build " >&2
   echo "Retrying ... "
   # Single thread this time
-  time ninja
+  time make
   if [ $? -eq 0 ]; then
     echo "Clang/LLVM make successful"
   else
@@ -167,7 +171,7 @@ else
 fi
 
 echo "Installing ... "
-time ninja  install
+time make  install -j$NUM_JOBS
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
 else
@@ -181,7 +185,7 @@ mkdir -p build-stage2-$LLVM_VER
 cd build-stage2-$LLVM_VER
 
 echo "[$PWD] System Bootstrap - Clang/LLVM Stage2..."
-time cmake -G Ninja \
+time cmake -G "Unix Makefiles" \
   -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
   -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
@@ -207,7 +211,7 @@ else
   exit 1
 fi
 
-time ninja -j$NUM_JOBS
+time make -j$NUM_JOBS
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM make successful"
 else
@@ -216,7 +220,7 @@ else
   echo "Make did not build " >&2
   echo "Retrying ... "
   # Single thread this time
-  time ninja
+  time make
   if [ $? -eq 0 ]; then
     echo "Clang/LLVM make successful"
   else
@@ -228,7 +232,7 @@ else
 fi
 
 echo "Installing ... "
-time ninja install -j$NUM_JOBS
+time make install -j$NUM_JOBS
 time ldconfig
 if [ $? -eq 0 ]; then
   echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
