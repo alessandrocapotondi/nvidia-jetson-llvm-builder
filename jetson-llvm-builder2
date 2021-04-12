@@ -116,35 +116,48 @@ if [ -d "$LLVM_SRC/llvm-$LLVM_VER" ]; then
 else
   cd $LLVM_SRC
   echo "Downloading sources at $LLVM_SRC/llvm-$LLVM_VER..."
-  wget -q https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-$LLVM_VER.tar.gz
-  tar -xf llvmorg-$LLVM_VER.tar.gz
-  mv llvm-project-llvmorg-$LLVM_VER llvm-$LLVM_VER
-  rm -rf llvmorg-$LLVM_VER.tar.gz
 
-  # We will be supporting CUDA Offloading on AARCH64, we need a little magic to help
-  # https://reviews.llvm.org/D76469#change-bNa3STPpyw0M
-  patch -N llvm-$LLVM_VER/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/llvm-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/clang-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/openmp-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/compiler-rt-$LLVM_VER.src.tar.xz
+
+  tar xf llvm-$LLVM_VER.src.tar.xz
+  tar xf clang-$LLVM_VER.src.tar.xz
+  tar xf openmp-$LLVM_VER.src.tar.xz
+  tar xf compiler-rt-$LLVM_VER.src.tar.xz
+
+  mv clang-$LLVM_VER.src llvm-$LLVM_VER.src/tools/clang
+  mv openmp-$LLVM_VER.src llvm-$LLVM_VER.src/projects/openmp
+  mv compiler-rt-$LLVM_VER.src llvm-$LLVM_VER.src/projects/compiler-rt
+  mv llvm-$LLVM_VER.src llvm-$LLVM_VER
+
+  rm -rf llvm-$LLVM_VER.src.tar.xz
+  rm -rf clang-$LLVM_VER.src.tar.xz
+  rm -rf openmp-$LLVM_VER.src.tar.xz
+  rm -rf compiler-rt-$LLVM_VER.src.tar.xz
+
+  if [ "$LLVM_VER" = "10.0.0" ]; then  
+    # We will be supporting CUDA Offloading on AARCH64, we need a little magic to help
+    # https://reviews.llvm.org/D76469#change-bNa3STPpyw0M
+    patch -N llvm-$LLVM_VER/projects/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
+  else
+    echo "Patch not required!"
+  fi
 fi
 
 cd $LLVM_SRC
 mkdir -p build-stage1-$LLVM_VER
 cd build-stage1-$LLVM_VER
 
-echo "[$PWD] Build Clang/LLVM Stage1..."
+echo "[$PWD] Build Clang/LLVM"
 time cmake -G "Unix Makefiles" \
-  -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
-  -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
-  -D CMAKE_BUILD_TYPE=RELEASE \
+  -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
-  -D LLVM_ENABLE_ASSERTIONS=ON \
-  -D LLVM_ENABLE_BACKTRACES=ON \
-  -D LLVM_ENABLE_RTTI=ON \
-  -D LLVM_ENABLE_WERROR=OFF \
-  -D BUILD_SHARED_LIBS=OFF \
+  -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
   -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
   -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \
-  $LLVM_SRC/llvm-$LLVM_VER/llvm
+  $LLVM_SRC/llvm-$LLVM_VER
 
 if [ $? -eq 0 ]; then
   echo "CMake configuration make successful"
@@ -184,6 +197,15 @@ else
   exit 1
 fi
 
+export PATH=$LLVM_PATH:$PATH
+export LD_LIBRARY_PATH=$LLVM_PATH/libexec:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$LLVM_PATH/lib:$LD_LIBRARY_PATH
+export LIBRARY_PATH=$LLVM_PATH/libexec:$LIBRARY_PATH
+export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH
+export MANPATH=$LLVM_PATH/share/man:$MANPATH
+export C_INCLUDE_PATH=$LLVM_PATH/include:$C_INCLUDE_PATH
+export CPLUS_INCLUDE_PATH=$LLVM_PATH/include:CPLUS_INCLUDE_PATH
+
 # Bootstrap LLVM/Clang
 cd $LLVM_SRC
 mkdir -p build-stage2-$LLVM_VER
@@ -191,21 +213,14 @@ cd build-stage2-$LLVM_VER
 
 echo "[$PWD] System Bootstrap - Clang/LLVM Stage2..."
 time cmake -G "Unix Makefiles" \
-  -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
-  -D LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;lld;openmp" \
-  -D CMAKE_BUILD_TYPE=RELEASE \
+  -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
-  -D LLVM_ENABLE_ASSERTIONS=ON \
-  -D LLVM_ENABLE_BACKTRACES=ON \
-  -D LLVM_ENABLE_RTTI=ON \
-  -D LLVM_ENABLE_WERROR=OFF \
-  -D BUILD_SHARED_LIBS=OFF \
+  -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
   -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
   -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \
   -D CMAKE_C_COMPILER=${LLVM_PATH}/bin/clang \
   -D CMAKE_CXX_COMPILER=${LLVM_PATH}/bin/clang++ \
-  $LLVM_SRC/llvm-$LLVM_VER/llvm
+  $LLVM_SRC/llvm-$LLVM_VER
 
 if [ $? -eq 0 ]; then
   echo "CMake configuration make successful"
