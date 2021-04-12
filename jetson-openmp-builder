@@ -37,6 +37,7 @@ LLVM_PATH=/usr/local
 
 # Source code directory
 LLVM_SRC=$HOME
+LLVM_OMP_SRC=$HOME/projects/openmp
 WHEREAMI=$PWD
 # NUM_JOBS is the number of jobs to run simultaneously when using make
 # This will default to the number of CPU cores (on the Nano, that's 4)
@@ -45,10 +46,12 @@ WHEREAMI=$PWD
 NUM_JOBS=8
 
 function usage() {
-  echo "usage: $0 [-s sourcedir | -i installdir | -j number of threads | -h ]"
-  echo "-j | --jobs        Number of threads used for building the compiler"
-  echo "-s | --sourcedir   Directory in which to place the Clang/LLVM sources (default $LLVM_SRC)"
+  echo "usage: $0 [-s sourcedir | -i installdir | -j number of threads | -o openmpdir | -h ]"
+  echo "-j | --jobs        Number of threads used for building the compiler (default: $NUM_JOBS)"
+  echo "-s | --sourcedir   Directory in which to place the Clang/LLVM sources (default: $LLVM_SRC)"
+  echo "-o | --openmpdir   Directory in which to place the OpenMP sources (default: $LLVM_OMP_SRC)"
   echo "-i | --installdir  Directory in which to install Clang/LLVM libraries (default $LLVM_PATH)"
+  echo "-v | --version     clang/LLVM version (default: $LLVM_VER)"
   echo "-h | --help  This message"
 }
 
@@ -63,6 +66,10 @@ while [ "$1" != "" ]; do
     shift
     LLVM_PATH=$1
     ;;
+  -o | --openmpdir)
+    shift
+    LLVM_PATH=$1
+    ;;
   -j | --jobs)
     shift
     NUM_JOBS=$1
@@ -70,6 +77,10 @@ while [ "$1" != "" ]; do
   -h | --help)
     usage
     exit
+    ;;
+  -v | --version)
+    shift
+    LLVM_VER=$1
     ;;
   *)
     usage
@@ -86,40 +97,6 @@ echo "Build configuration: "
 echo " NVIDIA Jetson Nano"
 echo " Clang/LLVM binaries will be installed in: $CMAKE_INSTALL_PREFIX"
 echo " Clang/LLVM Source will be installed in: $LLVM_SRC"
-
-# Repository setup
-apt-get update
-
-# Download dependencies for the desired configuration
-cd $WHEREAMI
-apt-get install -y \
-  build-essential \
-  cmake-curses-gui \
-  apt-utils \
-  git \
-  libffi-dev \
-  libelf-dev \
-  cmake \
-  wget \
-  xz-utils \
-  zsh
-
-# Build LLVM/Clang with GCC
-mkdir -p $LLVM_SRC
-if [ -d "$LLVM_SRC/llvm-$LLVM_VER" ]; then
-  echo "Found sources at $LLVM_SRC/llvm-$LLVM_VER: skipping download..."
-else
-  cd $LLVM_SRC
-  echo "Downloading sources at $LLVM_SRC/llvm-$LLVM_VER..."
-  wget -q https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-$LLVM_VER.tar.gz
-  tar -xf llvmorg-$LLVM_VER.tar.gz
-  mv llvm-project-llvmorg-$LLVM_VER llvm-$LLVM_VER
-  rm -rf llvmorg-$LLVM_VER.tar.gz
-
-  # We will be supporting CUDA Offloading on AARCH64, we need a little magic to help
-  # https://reviews.llvm.org/D76469#change-bNa3STPpyw0M
-  patch -N llvm-$LLVM_VER/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
-fi
 
 export PATH=$LLVM_PATH:$PATH
 export LD_LIBRARY_PATH=$LLVM_PATH/libexec:$LD_LIBRARY_PATH
@@ -138,11 +115,10 @@ echo "[$PWD] Build LLVM/OpenMP Project..."
 time cmake -G "Unix Makefiles" \
   -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
-  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=${NVIDIA_ARCH_LIST} \
-  -D LIBOMPTARGET_NVPTX_ENABLE_BCLIB=ON \
   -D CMAKE_C_COMPILER=${LLVM_PATH}/bin/clang \
   -D CMAKE_CXX_COMPILER=${LLVM_PATH}/bin/clang++ \
-  $LLVM_SRC/llvm-$LLVM_VER/openmp
+  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=${NVIDIA_ARCH_LIST} \
+  $LLVM_OMP_SRC
 
 if [ $? -eq 0 ]; then
   echo "CMake configuration make successful"
