@@ -1,0 +1,261 @@
+# BSD 2-Clause License
+# 
+# Copyright (c) 2020, Alessandro Capotondi
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+# 
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+# 
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#!/bin/bash
+
+#LLVM Version
+LLVM_VER=10.0.0
+
+# Jetson TX1,Nano   CP 5.3
+# Jetson TX2        CP 6.2
+# Jetson AGX Xavier CP 7.2
+NVIDIA_ARCH_DEFAULT=53
+NVIDIA_ARCH_LIST=53,62,72
+LLVM_PATH=/usr/local
+
+# Source code directory
+LLVM_SRC=$HOME
+WHEREAMI=$PWD
+# NUM_JOBS is the number of jobs to run simultaneously when using make
+# This will default to the number of CPU cores (on the Nano, that's 4)
+# If you are using a SD card, you may want to change this
+# to 1. Also, you may want to increase the size of your swap file
+NUM_JOBS=8
+
+function usage() {
+  echo "usage: $0 [-s sourcedir | -i installdir | -j number of threads | -h ]"
+  echo "-j | --jobs        Number of threads used for building the compiler (default: $NUM_JOBS)"
+  echo "-s | --sourcedir   Directory in which to place the Clang/LLVM sources (default: $LLVM_SRC)"
+  echo "-i | --installdir  Directory in which to install Clang/LLVM libraries (default $LLVM_PATH)"
+  echo "-v | --version     clang/LLVM version (default: $LLVM_VER)"
+  echo "-h | --help  This message"
+}
+
+# Iterate through command line inputs
+while [ "$1" != "" ]; do
+  case $1 in
+  -s | --sourcedir)
+    shift
+    LLVM_SRC=$1
+    ;;
+  -i | --installdir)
+    shift
+    LLVM_PATH=$1
+    ;;
+  -j | --jobs)
+    shift
+    NUM_JOBS=$1
+    ;;
+  -h | --help)
+    usage
+    exit
+    ;;
+  -v | --version)
+    shift
+    LLVM_VER=$1
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+  esac
+  shift
+done
+
+CMAKE_INSTALL_PREFIX=$LLVM_PATH
+
+# Print out the current configuration
+echo "Build configuration: "
+echo " NVIDIA Jetson Nano"
+echo " Clang/LLVM binaries will be installed in: $CMAKE_INSTALL_PREFIX"
+echo " Clang/LLVM Source will be installed in: $LLVM_SRC"
+
+# Repository setup
+apt-get update
+
+# Download dependencies for the desired configuration
+cd $WHEREAMI
+apt-get install -y \
+  build-essential \
+  cmake-curses-gui \
+  apt-utils \
+  git \
+  libffi-dev \
+  libelf-dev \
+  cmake \
+  wget \
+  xz-utils \
+  zsh
+
+# Build LLVM/Clang with GCC
+mkdir -p $LLVM_SRC
+if [ -d "$LLVM_SRC/llvm-$LLVM_VER" ]; then
+  echo "Found sources at $LLVM_SRC/llvm-$LLVM_VER: skipping download..."
+else
+  cd $LLVM_SRC
+  echo "Downloading sources at $LLVM_SRC/llvm-$LLVM_VER..."
+
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/llvm-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/clang-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/openmp-$LLVM_VER.src.tar.xz
+  wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VER/compiler-rt-$LLVM_VER.src.tar.xz
+
+  tar xf llvm-$LLVM_VER.src.tar.xz
+  tar xf clang-$LLVM_VER.src.tar.xz
+  tar xf openmp-$LLVM_VER.src.tar.xz
+  tar xf compiler-rt-$LLVM_VER.src.tar.xz
+
+  mv clang-$LLVM_VER.src llvm-$LLVM_VER.src/tools/clang
+  mv openmp-$LLVM_VER.src llvm-$LLVM_VER.src/projects/openmp
+  mv compiler-rt-$LLVM_VER.src llvm-$LLVM_VER.src/projects/compiler-rt
+  mv llvm-$LLVM_VER.src llvm-$LLVM_VER
+
+  rm -rf llvm-$LLVM_VER.src.tar.xz
+  rm -rf clang-$LLVM_VER.src.tar.xz
+  rm -rf openmp-$LLVM_VER.src.tar.xz
+  rm -rf compiler-rt-$LLVM_VER.src.tar.xz
+
+  if [ "$LLVM_VER" = "10.0.0" ]; then  
+    # We will be supporting CUDA Offloading on AARCH64, we need a little magic to help
+    # https://reviews.llvm.org/D76469#change-bNa3STPpyw0M
+    patch -N llvm-$LLVM_VER/projects/openmp/libomptarget/plugins/cuda/CMakeLists.txt $WHEREAMI'/patches/enable-arm-aarch64-cuda-offload.patch'
+  else
+    echo "Patch not required!"
+  fi
+fi
+
+cd $LLVM_SRC
+mkdir -p build-stage1-$LLVM_VER
+cd build-stage1-$LLVM_VER
+
+echo "[$PWD] Build Clang/LLVM"
+time cmake -G "Unix Makefiles" \
+  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
+  -D LLVM_TARGETS_TO_BUILD="ARM;AArch64;NVPTX" \
+  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
+  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \
+  $LLVM_SRC/llvm-$LLVM_VER
+
+if [ $? -eq 0 ]; then
+  echo "CMake configuration make successful"
+else
+  # Try to make again
+  echo "CMake issues " >&2
+  echo "Please check the configuration being used"
+  exit 1
+fi
+
+time make -j$NUM_JOBS
+if [ $? -eq 0 ]; then
+  echo "Clang/LLVM make successful"
+else
+  # Try to make again; Sometimes there are issues with the build
+  # because of lack of resources or concurrency issues
+  echo "Make did not build " >&2
+  echo "Retrying ... "
+  # Single thread this time
+  time make
+  if [ $? -eq 0 ]; then
+    echo "Clang/LLVM make successful"
+  else
+    # Try to make again
+    echo "Make did not successfully build" >&2
+    echo "Please fix issues and retry build"
+    exit 1
+  fi
+fi
+
+echo "Installing ... "
+time make  install -j$NUM_JOBS
+if [ $? -eq 0 ]; then
+  echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
+else
+  echo "There was an issue with the final installation"
+  exit 1
+fi
+
+export PATH=$LLVM_PATH:$PATH
+export LD_LIBRARY_PATH=$LLVM_PATH/libexec:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$LLVM_PATH/lib:$LD_LIBRARY_PATH
+export LIBRARY_PATH=$LLVM_PATH/libexec:$LIBRARY_PATH
+export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH
+export MANPATH=$LLVM_PATH/share/man:$MANPATH
+export C_INCLUDE_PATH=$LLVM_PATH/include:$C_INCLUDE_PATH
+export CPLUS_INCLUDE_PATH=$LLVM_PATH/include:CPLUS_INCLUDE_PATH
+
+cd $LLVM_SRC
+mkdir -p build-openmp-$LLVM_VER
+cd build-openmp-$LLVM_VER
+
+echo "[$PWD] Build LLVM/OpenMP Project..."
+time cmake -G "Unix Makefiles" \
+  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} \
+  -D CMAKE_C_COMPILER=${LLVM_PATH}/bin/clang \
+  -D CMAKE_CXX_COMPILER=${LLVM_PATH}/bin/clang++ \
+  -D CLANG_OPENMP_NVPTX_DEFAULT_ARCH=sm_$NVIDIA_ARCH_DEFAULT \
+  -D LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES=$NVIDIA_ARCH_LIST \
+  $LLVM_SRC/llvm-$LLVM_VER/projects/openmp
+
+if [ $? -eq 0 ]; then
+  echo "CMake configuration make successful"
+else
+  # Try to make again
+  echo "CMake issues " >&2
+  echo "Please check the configuration being used"
+  exit 1
+fi
+
+time make -j$NUM_JOBS
+if [ $? -eq 0 ]; then
+  echo "LLVM/OpenMP make successful"
+else
+  # Try to make again; Sometimes there are issues with the build
+  # because of lack of resources or concurrency issues
+  echo "Make did not build " >&2
+  echo "Retrying ... "
+  # Single thread this time
+  time make
+  if [ $? -eq 0 ]; then
+    echo "LLVM/OpenMP make successful"
+  else
+    # Try to make again
+    echo "Make did not successfully build" >&2
+    echo "Please fix issues and retry build"
+    exit 1
+  fi
+fi
+
+echo "Installing ... "
+time make install -j$NUM_JOBS
+if [ $? -eq 0 ]; then
+  echo "Clang/LLVM v$LLVM_VER installed in: $CMAKE_INSTALL_PREFIX"
+else
+  echo "There was an issue with the final installation"
+  exit 1
+fi
+
+#Happy offloading!!
