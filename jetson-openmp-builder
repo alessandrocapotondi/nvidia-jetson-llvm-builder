@@ -68,7 +68,7 @@ while [ "$1" != "" ]; do
     ;;
   -o | --openmpdir)
     shift
-    LLVM_PATH=$1
+    LLVM_OMP_SRC=$1
     ;;
   -j | --jobs)
     shift
